@@ -6,7 +6,7 @@ import {
 } from 'firebase/database'
 import { isSolid, getRandomSafeSpot } from './map'
 import { KeyPressListener } from './utils/KeyPressListener'
-import { createName, getKeyString, randomFromArray } from './utils/helpers'
+import { createName, getBlockAddress, randomFromArray, createElement } from './utils/helpers'
 import { Player, GameUiElements } from './types/models'
 import { playerColors } from './types/consts'
 
@@ -15,7 +15,7 @@ export class Game {
   public playerId: string = '';
   public playerRef?: DatabaseReference;
   public players: { [key: string]: Player } = {};
-  playerElements: { [key: string]: HTMLDivElement } = {};
+  playerElements: { [key: string]: HTMLElement } = {};
   public coins: any = {};
   coinElements: any = {};
 
@@ -40,44 +40,14 @@ export class Game {
       this.players = snapshot.val() || {};
       Object.keys(this.players).forEach((key) => {
         const characterState = this.players[key];
-        let el = this.playerElements[key];
-        // Now update the DOM
-        el.querySelector<HTMLDivElement>(".Character_name")!.innerText = characterState.name;
-        el.querySelector<HTMLDivElement>(".Character_coins")!.innerText = characterState.coins.toString();
-        el.setAttribute("data-color", characterState.color);
-        el.setAttribute("data-direction", characterState.direction);
-        const left = 16 * characterState.x + "px";
-        const top = 16 * characterState.y - 4 + "px";
-        el.style.transform = `translate3d(${left}, ${top}, 0)`;
+        this.updatePlayerElement(characterState);
       })
     })
     onRefChildAdded(allPlayersRef, (snapshot) => {
       //Fires whenever a new node is added the tree
       const addedPlayer = snapshot.val();
-      const characterElement = document.createElement("div");
-      characterElement.classList.add("Character", "grid-cell");
-      if (addedPlayer.id === this.playerId) {
-        characterElement.classList.add("you");
-      }
-      characterElement.innerHTML = (`
-        <div class="Character_shadow grid-cell"></div>
-        <div class="Character_sprite grid-cell"></div>
-        <div class="Character_name-container">
-          <span class="Character_name"></span>
-          <span class="Character_coins">0</span>
-        </div>
-        <div class="Character_you-arrow"></div>
-      `);
+      const characterElement = this.createPlayerElement(addedPlayer)
       this.playerElements[addedPlayer.id] = characterElement;
-
-      //Fill in some initial state
-      characterElement.querySelector<HTMLDivElement>(".Character_name")!.innerText = addedPlayer.name;
-      characterElement.querySelector<HTMLDivElement>(".Character_coins")!.innerText = addedPlayer.coins;
-      characterElement.setAttribute("data-color", addedPlayer.color);
-      characterElement.setAttribute("data-direction", addedPlayer.direction);
-      const left = 16 * addedPlayer.x + "px";
-      const top = 16 * addedPlayer.y - 4 + "px";
-      characterElement.style.transform = `translate3d(${left}, ${top}, 0)`;
       this.uiElements.container.appendChild(characterElement);
     })
 
@@ -90,29 +60,16 @@ export class Game {
 
     onRefChildAdded(allCoinsRef, (snapshot) => {
       const coin = snapshot.val();
-      const key = getKeyString(coin.x, coin.y);
+      const key = getBlockAddress(coin.x, coin.y);
       this.coins[key] = true;
 
-      // Create the DOM Element
-      const coinElement = document.createElement("div");
-      coinElement.classList.add("Coin", "grid-cell");
-      coinElement.innerHTML = `
-        <div class="Coin_shadow grid-cell"></div>
-        <div class="Coin_sprite grid-cell"></div>
-      `;
-
-      // Position the Element
-      const left = 16 * coin.x + "px";
-      const top = 16 * coin.y - 4 + "px";
-      coinElement.style.transform = `translate3d(${left}, ${top}, 0)`;
-
-      // Keep a reference for removal later and add to DOM
+      const coinElement = this.createCoinElement(coin, key);
       this.coinElements[key] = coinElement;
       this.uiElements.container.appendChild(coinElement);
     })
     onRefChildRemoved(allCoinsRef, (snapshot) => {
       const { x, y } = snapshot.val();
-      const keyToRemove = getKeyString(x, y);
+      const keyToRemove = getBlockAddress(x, y);
       this.uiElements.container.removeChild(this.coinElements[keyToRemove]);
       delete this.coinElements[keyToRemove];
     })
@@ -164,7 +121,7 @@ export class Game {
 
   private placeCoin() {
     const { x, y } = getRandomSafeSpot();
-    const coinRef = firebaseRef(this.firebaseDb, `coins/${getKeyString(x, y)}`);
+    const coinRef = firebaseRef(this.firebaseDb, `coins/${getBlockAddress(x, y)}`);
     refSet(coinRef, {
       x,
       y,
@@ -177,7 +134,7 @@ export class Game {
   }
 
   private attemptGrabCoin(x: number, y: number) {
-    const key = getKeyString(x, y);
+    const key = getBlockAddress(x, y);
     if (this.coins[key]) {
       // Remove this key from data, then uptick Player's coin count
       refRemove(firebaseRef(this.firebaseDb, `coins/${key}`));
@@ -203,6 +160,52 @@ export class Game {
       refSet(this.playerRef!, this.players[this.playerId]);
       this.attemptGrabCoin(newX, newY);
     }
+  }
+
+  private createPlayerElement(player: any) {
+    const cssClasses = ["Character", "grid-cell"]
+    if (player.id === this.playerId) {
+      cssClasses.push("you");
+    }
+    const attrs = {
+      "data-color": player.color,
+      "data-direction": player.direction
+    };
+    const innerHTML = (`
+      <div class="Character_shadow grid-cell"></div>
+      <div class="Character_sprite grid-cell"></div>
+      <div class="Character_name-container">
+        <span class="Character_name">${player.name}</span>
+        <span class="Character_coins">${player.coins}</span>
+      </div>
+      <div class="Character_you-arrow"></div>
+    `);
+    const left = 16 * player.x;
+    const top = 16 * player.y - 4;
+    return createElement("div", `player-${player.id}`,
+      cssClasses, attrs, innerHTML, left, top);
+  }
+
+  private updatePlayerElement(player: any) {
+    const el = this.playerElements[player.id];
+    // Now update the DOM
+    el.querySelector<HTMLDivElement>(".Character_name")!.innerText = player.name;
+    el.querySelector<HTMLDivElement>(".Character_coins")!.innerText = player.coins.toString();
+    el.setAttribute("data-color", player.color);
+    el.setAttribute("data-direction", player.direction);
+    const left = 16 * player.x + "px";
+    const top = 16 * player.y - 4 + "px";
+    el.style.transform = `translate3d(${left}, ${top}, 0)`;
+  }
+
+  private createCoinElement(coin: any, key: string) {
+    const innerHTML = `
+      <div class="Coin_shadow grid-cell"></div>
+      <div class="Coin_sprite grid-cell"></div>
+    `;
+    const left = 16 * coin.x;
+    const top = 16 * coin.y - 4;
+    return createElement("div", `coin-${key}`, ["Coin", "grid-cell"], null, innerHTML, left, top);
   }
 
 }

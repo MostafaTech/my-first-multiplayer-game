@@ -1,5 +1,5 @@
 import { MapData } from './types/models'
-import { getKeyString, randomFromArray } from './utils/helpers'
+import { getBlockAddress, randomFromArray } from './utils/helpers'
 
 export const mapData: MapData = {
   minX: 1,
@@ -23,7 +23,7 @@ export const mapData: MapData = {
 };
 
 export function isSolid(x: number, y: number) {
-  const blockedNextSpace = mapData.blockedSpaces[getKeyString(x, y)];
+  const blockedNextSpace = mapData.blockedSpaces[getBlockAddress(x, y)];
   return (
     blockedNextSpace ||
     x >= mapData.maxX ||
